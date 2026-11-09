@@ -1,0 +1,145 @@
+#!/usr/bin/env python3
+"""Executa K-Means sobre dados obtidos do HDFS ou de um CSV local."""
+import argparse
+import csv
+import math
+import sys
+from pathlib import Path
+from typing import TextIO
+
+import pandas as pd
+from sklearn.cluster import KMeans
+from sklearn.metrics import silhouette_score
+from sklearn.preprocessing import StandardScaler
+
+
+CSV_COLUMNS = (
+    "X", "Y", "month", "day", "FFMC", "DMC", "DC", "ISI", "temp",
+    "RH", "wind", "rain", "area",
+)
+NUMERIC_COLUMNS = (
+    "X", "Y", "FFMC", "DMC", "DC", "ISI", "temp", "RH", "wind", "rain",
+    "area",
+)
+K_VALUES = range(2, 11)
+
+
+def load_data(stream: TextIO) -> pd.DataFrame:
+    """Lê o CSV sem cabeçalho, valida seu formato e retorna colunas numéricas."""
+    try:
+        rows = list(csv.reader(stream, strict=True))
+    except csv.Error as error:
+        raise ValueError(f"CSV inválido: {error}") from error
+
+    rows = [row for row in rows if row and any(value.strip() for value in row)]
+    if rows and tuple(value.strip() for value in rows[0]) == CSV_COLUMNS:
+        rows = rows[1:]
+    if not rows:
+        raise ValueError("O arquivo não contém registros.")
+
+    for line_number, row in enumerate(rows, start=1):
+        if len(row) != len(CSV_COLUMNS):
+            raise ValueError(
+                f"linha {line_number}: esperadas {len(CSV_COLUMNS)} colunas, "
+                f"recebidas {len(row)}"
+            )
+
+    frame = pd.DataFrame(rows, columns=CSV_COLUMNS)
+    for column in NUMERIC_COLUMNS:
+        try:
+            frame[column] = pd.to_numeric(frame[column], errors="raise")
+        except (ValueError, TypeError) as error:
+            raise ValueError(f"valor inválido na coluna {column}: {error}") from error
+        if not frame[column].map(math.isfinite).all():
+            raise ValueError(f"a coluna {column} contém valor não finito")
+
+    return frame
+
+
+def run_analysis(frame: pd.DataFrame, output_dir: Path) -> tuple[int, pd.DataFrame]:
+    """Avalia K=2..10 e salva escores, perfis e correlações por cluster."""
+    raw_values = frame.loc[:, NUMERIC_COLUMNS]
+    scaled_values = StandardScaler().fit_transform(raw_values)
+    scores = []
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    for k in K_VALUES:
+        model = KMeans(n_clusters=k, random_state=42, n_init=10)
+        labels = model.fit_predict(scaled_values)
+        score = silhouette_score(scaled_values, labels)
+        scores.append({"k": k, "silhouette_score": score})
+
+        k_dir = output_dir / f"k_{k}"
+        correlations_dir = k_dir / "correlations"
+        correlations_dir.mkdir(parents=True, exist_ok=True)
+        summaries = []
+
+        for cluster_id in range(k):
+            mask = labels == cluster_id
+            cluster_values = raw_values.loc[mask]
+            summary = {
+                "cluster": cluster_id,
+                "count": int(mask.sum()),
+            }
+            summary.update(
+                {
+                    f"{column}_mean": cluster_values[column].mean()
+                    for column in NUMERIC_COLUMNS
+                }
+            )
+            summaries.append(summary)
+            cluster_values.corr().to_csv(
+                correlations_dir / f"cluster_{cluster_id}.csv",
+                float_format="%.8f",
+            )
+
+        pd.DataFrame(summaries).to_csv(
+            k_dir / "cluster_summary.csv", index=False, float_format="%.8f"
+        )
+
+    scores_frame = pd.DataFrame(scores)
+    scores_frame.to_csv(
+        output_dir / "silhouette_scores.csv", index=False, float_format="%.8f"
+    )
+    best_k = int(scores_frame.loc[scores_frame["silhouette_score"].idxmax(), "k"])
+    return best_k, scores_frame
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(
+        description=(
+            "Executa K-Means e salva Silhouette Scores, perfis e matrizes de "
+            "correlação. Use --input - para ler dados do stdin/HDFS."
+        )
+    )
+    parser.add_argument(
+        "--input",
+        default=str(Path(__file__).resolve().parent.parent / "forestfireinput.csv"),
+        help="caminho do CSV; use '-' para receber dados pela entrada padrão",
+    )
+    parser.add_argument(
+        "--output",
+        default="kmeans_results",
+        help="diretório para os arquivos gerados (padrão: kmeans_results)",
+    )
+    args = parser.parse_args()
+
+    try:
+        if args.input == "-":
+            frame = load_data(sys.stdin)
+        else:
+            with Path(args.input).open(encoding="utf-8", newline="") as stream:
+                frame = load_data(stream)
+        best_k, scores = run_analysis(frame, Path(args.output))
+    except (OSError, ValueError) as error:
+        parser.exit(1, f"Erro: {error}\n")
+
+    print("K\tSilhouette Score")
+    for row in scores.itertuples(index=False):
+        print(f"{row.k}\t{row.silhouette_score:.8f}")
+    print(f"\nMelhor K: {best_k}")
+    print(f"Resultados salvos em: {Path(args.output).resolve()}")
+
+
+if __name__ == "__main__":
+    main()

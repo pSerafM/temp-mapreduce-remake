@@ -192,3 +192,45 @@ Não. É uma medida de associação linear; correlação não demonstra causalid
 
 As colunas do CSV seguem a ordem:
 `X,Y,month,day,FFMC,DMC,DC,ISI,temp,RH,wind,rain,area`.
+
+## K-Means e análise por cluster
+
+A análise de K-Means é um fluxo independente do job de correlação acima. Ela
+obtém os dados do HDFS com `hdfs dfs -cat`, padroniza as 11 colunas numéricas,
+executa K-Means para K de 2 a 10, calcula o Silhouette Score e grava matrizes
+de correlação para cada cluster e cada K. O Hadoop é usado para armazenar e
+fornecer o CSV; o cálculo do K-Means é executado localmente pelo Python.
+
+Instale as dependências em um ambiente Python com:
+
+```bash
+python3 -m pip install -r requirements-kmeans.txt
+```
+
+Com Hadoop/HDFS configurados, execute da raiz do projeto:
+
+```bash
+bash src/run_kmeans_hadoop.sh
+```
+
+Opcionalmente, informe outro diretório local para os resultados:
+
+```bash
+bash src/run_kmeans_hadoop.sh /caminho/para/resultados
+```
+
+Para validar a análise sem Hadoop, leia o CSV local:
+
+```bash
+python3 src/kmeans_hadoop --input forestfireinput.csv --output kmeans_results
+```
+
+O programa imprime os nove Silhouette Scores e o melhor K. `silhouette_scores.csv`
+contém a tabela comparativa. Para cada valor de K, `k_<K>/cluster_summary.csv`
+contém o número de registros e as médias originais das variáveis por cluster;
+`k_<K>/correlations/cluster_<ID>.csv` contém as correlações de Pearson entre
+todas as variáveis numéricas naquele cluster. As correlações usam os dados
+originais para facilitar a interpretação; apenas o K-Means e o Silhouette Score
+usam valores padronizados. Um coeficiente pode aparecer como vazio quando a
+correlação não está definida, por exemplo, se uma variável for constante no
+cluster.
