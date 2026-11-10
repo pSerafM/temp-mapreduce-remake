@@ -1,11 +1,19 @@
 #!/usr/bin/env python3
 """Simula localmente Map -> Combiner -> Shuffle/Sort -> Reduce, sem Hadoop."""
+import argparse
 import sys
 from collections import defaultdict
 from pathlib import Path
+from typing import Optional
 
 from mapper import map_line
-from correlation import format_result, merge_by_feature, merge_statistics, parse_statistics
+from correlation import (
+    correlation,
+    format_result,
+    merge_by_feature,
+    merge_statistics,
+    parse_statistics,
+)
 
 CHUNK_SIZE = 50
 
@@ -13,7 +21,24 @@ CHUNK_SIZE = 50
 def main() -> None:
     # O caminho padrão independe da pasta de onde o usuário executa o comando.
     default_input = Path(__file__).resolve().parent.parent / "forestfireinput.csv"
-    path = Path(sys.argv[1]) if len(sys.argv) > 1 else default_input
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "input",
+        nargs="?",
+        type=Path,
+        default=default_input,
+        help="arquivo CSV de entrada",
+    )
+    parser.add_argument(
+        "--plot",
+        nargs="?",
+        const=Path("correlacoes.png"),
+        type=Path,
+        metavar="ARQUIVO",
+        help="salva um gráfico das correlações (padrão: correlacoes.png)",
+    )
+    args = parser.parse_args()
+    path = args.input
     if not path.exists():
         sys.exit(f"Arquivo não encontrado: {path.resolve()}")
 
@@ -55,6 +80,7 @@ def main() -> None:
     # Shuffle junta os estados de blocos diferentes pela chave/variável.
     # O reducer simulado combina todos os blocos antes de calcular Pearson.
     print("variavel\tquantidade\tcorrelacao_pearson")
+    results: list[tuple[str, Optional[float]]] = []
     for feature in sorted(shuffle):
         statistics = None
         for partial in shuffle[feature]:
@@ -63,6 +89,13 @@ def main() -> None:
                 else merge_statistics(statistics, partial)
             )
         print(format_result(feature, statistics))
+        results.append((feature, correlation(statistics)))
+
+    if args.plot is not None:
+        from plotting import plot_correlations
+
+        plot_correlations(results, args.plot, path.name)
+        print(f"Gráfico salvo em: {args.plot}")
 
 
 if __name__ == "__main__":

@@ -1,0 +1,7 @@
+# Python bytecode
+__pycache__/
+*.py[cod]
+
+# Generated charts and K-means analysis results
+/correlacoes.png
+/kmeans_results/

@@ -18,6 +18,21 @@ Também é possível informar outro CSV:
 python src\run_local.py caminho\para\forestfireinput.csv
 ```
 
+Para gerar um gráfico de barras com as correlações calculadas:
+
+```powershell
+python -m pip install -r requirements-plot.txt
+python src\run_local.py --plot
+```
+
+O gráfico `correlacoes.png` será salvo na pasta atual. É possível escolher
+outro nome e caminho com `python src\run_local.py --plot graficos\correlacoes.png`
+ou combinar a opção com um CSV próprio, por exemplo
+`python src\run_local.py caminho\para\dados.csv --plot saida.png`. Barras verdes
+representam correlações positivas e barras laranjas, negativas. Variáveis cuja
+correlação não pode ser calculada (variância zero) aparecem como `NA` na saída
+textual e são omitidas do gráfico.
+
 ## Execução no Hadoop
 
 Em um ambiente com Hadoop Streaming, HDFS, `HADOOP_HOME` e Python 3 disponíveis
@@ -149,8 +164,9 @@ saída mostra `NA`.
    de entrada e saída é o mesmo.
 7. Abra `reducer.py`: mostre a troca de chave, o fechamento de cada grupo e a
    emissão da correlação apenas depois de agregar os estados recebidos.
-8. Execute `python src/run_local.py`, aponte as contagens e interprete o sinal
-   e a magnitude de um ou dois coeficientes. Reforce que associação não é causa.
+8. Execute `python src/run_local.py --plot`, aponte as contagens e interprete o
+   sinal e a magnitude de um ou dois coeficientes no gráfico. Reforce que
+   associação não é causa.
 9. Seja transparente sobre o ambiente: a execução local validou os cálculos; a
    execução real em Hadoop ainda precisa ser feita num cluster configurado.
 
